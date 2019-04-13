@@ -1,0 +1,11 @@
+{
+    "TRADE_API_IP_PORT": "101.132.198.52:888", //交易通服务器地址
+
+    "BROKER_ID": "55", //交易通中的券商ID 55,华泰证券
+    "BROKER_SERVER_IP": "61.132.54.83", //券商IP
+    "BROKER_SERVER_PORT": "7718", //券商IP Port
+    "BROKER_ACCNT": "666691931025", //券商客户号
+    "BROKER_IS_CREDIT_ACCNT": "0", //是否有融资融券功能
+    "BROKER_ACCNT_PSWD": "password",  //券商登录密码
+    "BROKER_COMM_PSWD": "password"    //券商通讯密码
+}
