@@ -742,13 +742,17 @@ class JYTfWebsocketApi(WebsocketClient):
         vtOrderID = '.'.join([self.gatewayName, orderID])
 
         type_ = typeMap[(orderReq.direction, orderReq.offset)]
-        priceStr=str(orderReq.price)
+
+        if orderReq.symbol[0] <= '3': #深圳和上海市场的判断
+            marketType=1
+        else:
+            marketType=2
 
         msg = ('{"req":"Trade_CommitOrder","rid":"'+orderID+'",'
                '"para":[{'
                '"Code" : '+orderReq.symbol+','  # 品种代码
                '"Count" : '+str(orderReq.volume)+','  # 数量
-               '"EType" : 1,'
+               '"EType" : '+str(marketType)+','
                '"OType" : '+str(type_)+','  # 1买,2卖
                '"PType" : 1,'
                '"Price" : "'+str(orderReq.price) +'"' # 价格
