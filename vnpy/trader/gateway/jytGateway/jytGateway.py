@@ -71,7 +71,7 @@ class JytGateway(VtGateway):
         """Constructor"""
         super(JytGateway, self).__init__(eventEngine, gatewayName)
         
-        self.qryEnabled = False     # 是否要启动循环查询
+        self.qryEnabled = False     # 是否要启动循环查询 #TODO 这个标志位无效,要修
         self.localRemoteDict = {}   # localID:remoteID
         self.orderDict = {}         # remoteID:order
 
@@ -117,7 +117,7 @@ class JytGateway(VtGateway):
         self.wsApi.connect()
 
         # 初始化并启动仓位资金查询
-        self.initQuery()
+        # self.initQuery() #TODO: 通过标志位关不掉,有bug,先注释掉
 
     #----------------------------------------------------------------------
     def subscribe(self, subscribeReq):
@@ -127,7 +127,7 @@ class JytGateway(VtGateway):
     #----------------------------------------------------------------------
     def sendOrder(self, orderReq):
         """发单"""
-        return self.wsApi.sendOrder(orderReq)
+        return self.wsApi.tx_commitOrder_req(orderReq)
 
     #----------------------------------------------------------------------
     def cancelOrder(self, cancelOrderReq):
@@ -536,6 +536,7 @@ class JYTfWebsocketApi(WebsocketClient):
         self.gateway = gateway
         self.gatewayName = gateway.gatewayName
 
+        self.orderID = 0
         self.msgRespCallback = None
 
         self.orderDict = gateway.orderDict
@@ -570,11 +571,19 @@ class JYTfWebsocketApi(WebsocketClient):
     def onDisconnected(self):
         """连接回调"""
         self.writeLog(u'Websocket API连接断开')
-    
+
+    def sendText(self, text):
+        print("===SENT====")
+        print(text)
+        super(self.__class__, self).sendText(text)
+
     #----------------------------------------------------------------------
     def onPacket(self, jsonMsg):
+        print("---RCVD---")
+        print(json.dumps(jsonMsg,ensure_ascii=False))
+
         """数据回调"""
-        if self.msgRespCallback:
+        if self.msgRespCallback is not None:
             self.msgRespCallback(jsonMsg)
     
     #----------------------------------------------------------------------
@@ -652,7 +661,7 @@ class JYTfWebsocketApi(WebsocketClient):
         if jsonMsg.get('event'):#event是券商发给交易通,然后返回的
             if jsonMsg.get('data').get('Result')==0:
                 self.writeLog("登录券商服务器成功")
-                # self.login()
+                self.loginTime=int(time.time()*1000)
             else:
                 self.writeLog("登录券商服务器失败")
                 self.stop()
@@ -726,29 +735,39 @@ class JYTfWebsocketApi(WebsocketClient):
             self.gateway.onPosition(position)
 
     #----------------------------------------------------------------------
-    def sendOrder(self, orderReq):# type: (VtOrderReq)->str
+    def tx_commitOrder_req(self, orderReq):# type: (VtOrderReq)->str
         """"""
         self.orderID += 1
         orderID = str(self.loginTime + self.orderID)
         vtOrderID = '.'.join([self.gatewayName, orderID])
 
         type_ = typeMap[(orderReq.direction, orderReq.offset)]
+        priceStr=str(orderReq.price)
 
-        msg = ('"{"req":"Trade_CommitOrder","rid":"'+orderID+'",'
+        msg = ('{"req":"Trade_CommitOrder","rid":"'+orderID+'",'
                '"para":[{'
                '"Code" : '+orderReq.symbol+','  # 品种代码
-               '"Count" : '+orderReq.volume+','  # 数量
+               '"Count" : '+str(orderReq.volume)+','  # 数量
                '"EType" : 1,'
-               '"OType" : '+type_+','  # 1买,2卖
+               '"OType" : '+str(type_)+','  # 1买,2卖
                '"PType" : 1,'
-               '"Price" : "'+orderReq.price+'"'  # 价格
+               '"Price" : "'+str(orderReq.price) +'"' # 价格
                '}]}"')
 
-        # self.msgRespCallback = self.on_queryAccount_resp
+        self.msgRespCallback = self.on_commitOrder_resp
         self.sendText(msg)
 
-
         return vtOrderID
+
+    def on_commitOrder_resp(self, jsonMsg):
+        """"""
+        #TODO 发短信通知成功或错误
+        msgStr=json.dumps(jsonMsg, ensure_ascii=False)
+        if msgStr.find(u'错误')>=0 or msgStr.find(u'失败')>=0:
+            errStr=json.dumps(jsonMsg.get('data'),ensure_ascii=False)
+            self.writeLog(errStr)
+        elif msgStr.find(u'event')>=0:
+            self.writeLog('委托成功')
 
     #----------------------------------------------------------------------
     def subscribe(self, subscribeReq):
