@@ -8,4 +8,4 @@ gatewayClass = JytGateway
 gatewayName = 'JYT'
 gatewayDisplayName = '交易通'
 gatewayType = vtConstant.GATEWAYTYPE_EQUITY
-gatewayQryEnabled = False  #是否每秒轮询执行gateway中的queryInfo()
+gatewayQryEnabled = False  #是否每秒轮询执行gateway中的query()
