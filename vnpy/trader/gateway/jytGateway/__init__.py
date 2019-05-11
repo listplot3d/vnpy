@@ -8,4 +8,4 @@ gatewayClass = JytGateway
 gatewayName = 'JYT'
 gatewayDisplayName = '交易通'
 gatewayType = vtConstant.GATEWAYTYPE_EQUITY
-gatewayQryEnabled = True
+gatewayQryEnabled = False  #是否每秒轮询持仓
