@@ -78,6 +78,8 @@ class OkexGateway(BaseGateway):
         "代理端口": "",
     }
 
+    exchanges = [Exchange.OKEX]
+
     def __init__(self, event_engine):
         """Constructor"""
         super(OkexGateway, self).__init__(event_engine, "OKEX")
@@ -316,6 +318,7 @@ class OkexRestApi(RestClient):
                 product=Product.SPOT,
                 size=1,
                 pricetick=float(instrument_data["tick_size"]),
+                min_volume=float(instrument_data["min_size"]),
                 gateway_name=self.gateway_name
             )
             self.gateway.on_contract(contract)

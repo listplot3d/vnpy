@@ -29,74 +29,92 @@ with open("vnpy/__init__.py", "rb") as f:
     version = str(ast.literal_eval(version_line))
 
 if platform.uname().system == "Windows":
-    compiler_flags = ["/MP", "/std:c++17",  # standard
-                      "/O2", "/Ob2", "/Oi", "/Ot", "/Oy", "/GL",  # Optimization
-                      "/wd4819"  # 936 code page
-                      ]
+    compiler_flags = [
+        "/MP", "/std:c++17",  # standard
+        "/O2", "/Ob2", "/Oi", "/Ot", "/Oy", "/GL",  # Optimization
+        "/wd4819"  # 936 code page
+    ]
     extra_link_args = []
 else:
-    compiler_flags = ["-std=c++17",
-                      "-Wno-delete-incomplete", "-Wno-sign-compare",
-                      ]
+    compiler_flags = [
+        "-std=c++17",  # standard
+        "-O3",  # Optimization
+        "-Wno-delete-incomplete", "-Wno-sign-compare",
+    ]
     extra_link_args = ["-lstdc++"]
 
-vnctpmd = Extension("vnpy.api.ctp.vnctpmd",
-                    [
-                        "vnpy/api/ctp/vnctp/vnctpmd/vnctpmd.cpp",
-                    ],
-                    include_dirs=["vnpy/api/ctp/include",
-                                  "vnpy/api/ctp/vnctp", ],
-                    define_macros=[],
-                    undef_macros=[],
-                    library_dirs=["vnpy/api/ctp/libs", "vnpy/api/ctp"],
-                    libraries=["thostmduserapi", "thosttraderapi", ],
-                    extra_compile_args=compiler_flags,
-                    extra_link_args=extra_link_args,
-                    depends=[],
-                    runtime_library_dirs=["$ORIGIN"],
-                    language="cpp",
-                    )
-vnctptd = Extension("vnpy.api.ctp.vnctptd",
-                    [
-                        "vnpy/api/ctp/vnctp/vnctptd/vnctptd.cpp",
-                    ],
-                    include_dirs=["vnpy/api/ctp/include",
-                                  "vnpy/api/ctp/vnctp", ],
-                    define_macros=[],
-                    undef_macros=[],
-                    library_dirs=["vnpy/api/ctp/libs", "vnpy/api/ctp"],
-                    libraries=["thostmduserapi", "thosttraderapi", ],
-                    extra_compile_args=compiler_flags,
-                    extra_link_args=extra_link_args,
-                    runtime_library_dirs=["$ORIGIN"],
-                    depends=[],
-                    language="cpp",
-                    )
-vnoes = Extension("vnpy.api.oes.vnoes",
-                  [
-                      "vnpy/api/oes/vnoes/generated_files/classes_1.cpp",
-                      "vnpy/api/oes/vnoes/generated_files/classes_2.cpp",
-                      "vnpy/api/oes/vnoes/generated_files/module.cpp",
-                  ],
-                  include_dirs=["vnpy/api/oes/include",
-                                "vnpy/api/oes/vnoes", ],
-                  define_macros=[("BRIGAND_NO_BOOST_SUPPORT", "1")],
-                  undef_macros=[],
-                  library_dirs=["vnpy/api/oes/libs"],
-                  libraries=["oes_api"],
-                  extra_compile_args=compiler_flags,
-                  extra_link_args=extra_link_args,
-                  depends=[],
-                  language="cpp",
-                  )
+vnctpmd = Extension(
+    "vnpy.api.ctp.vnctpmd",
+    [
+        "vnpy/api/ctp/vnctp/vnctpmd/vnctpmd.cpp",
+    ],
+    include_dirs=["vnpy/api/ctp/include",
+                  "vnpy/api/ctp/vnctp", ],
+    define_macros=[],
+    undef_macros=[],
+    library_dirs=["vnpy/api/ctp/libs", "vnpy/api/ctp"],
+    libraries=["thostmduserapi_se", "thosttraderapi_se", ],
+    extra_compile_args=compiler_flags,
+    extra_link_args=extra_link_args,
+    depends=[],
+    runtime_library_dirs=["$ORIGIN"],
+    language="cpp",
+)
+vnctptd = Extension(
+    "vnpy.api.ctp.vnctptd",
+    [
+        "vnpy/api/ctp/vnctp/vnctptd/vnctptd.cpp",
+    ],
+    include_dirs=["vnpy/api/ctp/include",
+                  "vnpy/api/ctp/vnctp", ],
+    define_macros=[],
+    undef_macros=[],
+    library_dirs=["vnpy/api/ctp/libs", "vnpy/api/ctp"],
+    libraries=["thostmduserapi_se", "thosttraderapi_se", ],
+    extra_compile_args=compiler_flags,
+    extra_link_args=extra_link_args,
+    runtime_library_dirs=["$ORIGIN"],
+    depends=[],
+    language="cpp",
+)
+vnoes = Extension(
+    "vnpy.api.oes.vnoes",
+    [
+        "vnpy/api/oes/vnoes/generated_files/classes_1.cpp",
+        "vnpy/api/oes/vnoes/generated_files/classes_2.cpp",
+        "vnpy/api/oes/vnoes/generated_files/module.cpp",
+    ],
+    include_dirs=["vnpy/api/oes/include",
+                  "vnpy/api/oes/vnoes", ],
+    define_macros=[("BRIGAND_NO_BOOST_SUPPORT", "1")],
+    undef_macros=[],
+    library_dirs=["vnpy/api/oes/libs"],
+    libraries=["oes_api"],
+    extra_compile_args=compiler_flags,
+    extra_link_args=extra_link_args,
+    runtime_library_dirs=["$ORIGIN"],
+    depends=[],
+    language="cpp",
+)
 
-if platform.uname().system == "Windows":
+if platform.system() == "Windows":
     # use pre-built pyd for windows ( support python 3.7 only )
+    ext_modules = []
+elif platform.system() == "Darwin":
     ext_modules = []
 else:
     ext_modules = [vnctptd, vnctpmd, vnoes]
 
 pkgs = find_packages()
+
+
+def is_psycopg2_exists():
+    try:
+        import psycopg2  # noqa
+        return True
+    except ImportError:
+        return False
+
 
 install_requires = [
     "PyQt5<5.12",
@@ -104,15 +122,22 @@ install_requires = [
     "requests",
     "websocket-client",
     "peewee",
+    "pymysql",
+    "mongoengine",
     "numpy",
     "pandas",
     "matplotlib",
     "seaborn",
     "futu-api",
     "tigeropen",
+    "rqdatac",
     "ta-lib",
-    "ibapi"
+    "ibapi",
+    "deap"
 ]
+if not is_psycopg2_exists():
+    install_requires.append("psycopg2-binary")
+
 if sys.version_info.minor < 7:
     install_requires.append("dataclasses")
 

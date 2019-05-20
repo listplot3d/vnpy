@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-    <img src ="https://img.shields.io/badge/version-2.0.1-blueviolet.svg"/>
+    <img src ="https://img.shields.io/badge/version-2.0.3-blueviolet.svg"/>
     <img src ="https://img.shields.io/badge/platform-windows|linux|macos-yellow.svg"/>
     <img src ="https://img.shields.io/badge/python-3.7-blue.svg" />
     <img src ="https://img.shields.io/travis/com/vnpy/vnpy/master.svg"/>
@@ -24,7 +24,11 @@ vn.py是一套基于Python的开源量化交易系统开发框架，于2015年1�
 
     * CTP(ctp)：国内期货、期权
 
-    * 宽睿(oes)：A股
+    * 飞马(femas)：国内期货
+
+    * 宽睿(oes)：国内证券（A股）
+
+    * 中泰XTP(xtp)：国内证券（A股）
 
     * 富途证券(futu)：港股、美股
 
@@ -32,13 +36,31 @@ vn.py是一套基于Python的开源量化交易系统开发框架，于2015年1�
 
     * Interactive Brokers(ib)：全球证券、期货、期权、外汇等
 
-    * BitMEX (bitmex)：数字货币期货、期权、永续合约
+    * BitMEX(bitmex)：数字货币期货、期权、永续合约
+
+    * OKEX合约(okexf)：数字货币期货
+
+    * 火币合约(hbdm)：数字货币期货
+
+    * OKEX(okex)：数字货币现货
+
+    * 火币(huobi)：数字货币现货
+    
+    * Bitfinex(bitfinex)：数字货币现货
+
+    * 1Token(onetoken)：数字货币券商（现货、期货）
 
 3. 开箱即用的各类量化策略交易应用（vnpy.app）：
 
     * cta_strategy：CTA策略引擎模块，在保持易用性的同时，允许用户针对CTA类策略运行过程中委托的报撤行为进行细粒度控制（降低交易滑点、实现高频策略）
 
+    * cta_backtester：CTA策略回测模块，无需使用Jupyter Notebook，直接使用图形界面直接进行策略回测分析、参数优化等相关工作
+
+    * algo_trading：算法交易模块，提供多种常用的智能交易算法：TWAP、Sniper、Iceberg、BestLimit等等，支持常用算法配置保存
+
     * csv_loader：CSV历史数据加载器，用于加载CSV格式文件中的历史数据到平台数据库中，用于策略的回测研究以及实盘初始化等功能，支持自定义数据表头格式
+
+    * data_recorder：行情记录模块，基于图形界面进行配置，根据需求实时录制Tick或者K线行情到数据库中，用于策略回测或者实盘初始化
 
 4. Python交易API接口封装（vnpy.api），提供上述交易接口的底层对接实现。
 
@@ -50,7 +72,7 @@ vn.py是一套基于Python的开源量化交易系统开发框架，于2015年1�
 
 ## 环境准备
 
-* 推荐使用vn.py团队为量化交易专门打造的Python发行版[VNConda-2.0.1-Windows-x86_64](https://conda.vnpy.com/VNConda-2.0.1-Windows-x86_64.exe)，内置了最新版的vn.py框架以及VN Station量化管理平台，无需手动安装
+* 推荐使用vn.py团队为量化交易专门打造的Python发行版[VNStudio-2.0.3](https://download.vnpy.com/vnstudio-2.0.3.exe)，内置了最新版的vn.py框架以及VN Station量化管理平台，无需手动安装
 * 支持的系统版本：Windows 7以上/Windows Server 2008以上/Ubuntu 18.04 LTS
 * 支持的Python版本：Python 3.7 64位（**注意必须是Python 3.7 64位版本**）
 
@@ -92,6 +114,7 @@ from vnpy.trader.engine import MainEngine
 from vnpy.trader.ui import MainWindow, create_qapp
 from vnpy.gateway.ctp import CtpGateway
 from vnpy.app.cta_strategy import CtaStrategyApp
+from vnpy.app.cta_backtester import CtaBacktesterApp
 
 def main():
     """Start VN Trader"""
@@ -102,6 +125,7 @@ def main():
     
     main_engine.add_gateway(CtpGateway)
     main_engine.add_app(CtaStrategyApp)
+    main_engine.add_app(CtaBacktesterApp)
 
     main_window = MainWindow(main_engine, event_engine)
     main_window.showMaximized()
@@ -164,6 +188,7 @@ vn.py使用Github托管其源代码，如果希望贡献代码请使用github的
 
 
 ## 版权说明
+
 MIT
   
 

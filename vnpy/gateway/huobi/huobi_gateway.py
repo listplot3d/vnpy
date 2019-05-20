@@ -1,5 +1,3 @@
-# encoding: UTF-8
-
 """
 火币交易接口
 """
@@ -77,9 +75,11 @@ class HuobiGateway(BaseGateway):
         "代理端口": "",
     }
 
+    exchagnes = [Exchange.HUOBI]
+
     def __init__(self, event_engine):
         """Constructor"""
-        super(HuobiGateway, self).__init__(event_engine, "HUOBI")
+        super().__init__(event_engine, "HUOBI")
 
         self.order_manager = LocalOrderManager(self)
 
@@ -155,7 +155,7 @@ class HuobiRestApi(RestClient):
 
     def __init__(self, gateway: BaseGateway):
         """"""
-        super(HuobiRestApi, self).__init__()
+        super().__init__()
 
         self.gateway = gateway
         self.gateway_name = gateway.gateway_name
@@ -165,9 +165,6 @@ class HuobiRestApi(RestClient):
         self.key = ""
         self.secret = ""
         self.account_id = ""
-
-        self.cancel_requests = {}
-        self.orders = {}
 
     def sign(self, request):
         """
@@ -374,14 +371,15 @@ class HuobiRestApi(RestClient):
             quote_currency = d["quote-currency"]
             name = f"{base_currency.upper()}/{quote_currency.upper()}"
             pricetick = 1 / pow(10, d["price-precision"])
-            size = 1 / pow(10, d["amount-precision"])
-
+            min_volume = 1 / pow(10, d["amount-precision"])
+            
             contract = ContractData(
                 symbol=d["symbol"],
                 exchange=Exchange.HUOBI,
                 name=name,
                 pricetick=pricetick,
-                size=size,
+                size=1,
+                min_volume=min_volume,
                 product=Product.SPOT,
                 gateway_name=self.gateway_name,
             )
@@ -460,7 +458,7 @@ class HuobiWebsocketApiBase(WebsocketClient):
 
     def __init__(self, gateway):
         """"""
-        super(HuobiWebsocketApiBase, self).__init__()
+        super().__init__()
 
         self.gateway = gateway
         self.gateway_name = gateway.gateway_name
@@ -507,7 +505,14 @@ class HuobiWebsocketApiBase(WebsocketClient):
     def on_packet(self, packet):
         """"""
         if "ping" in packet:
-            self.send_packet({"pong": packet["ping"]})
+            req = {"pong": packet["ping"]}
+            self.send_packet(req)
+        elif "op" in packet and packet["op"] == "ping":
+            req = {
+                "op": "pong",
+                "ts": packet["ts"]
+            }
+            self.send_packet(req)
         elif "err-msg" in packet:
             return self.on_error_msg(packet)
         elif "op" in packet and packet["op"] == "auth":
