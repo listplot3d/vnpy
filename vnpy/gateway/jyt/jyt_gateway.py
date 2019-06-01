@@ -39,6 +39,9 @@ from vnpy.trader.object import (
     HistoryRequest
 )
 
+from vnpy.event import Event
+from vnpy.trader.event import EVENT_TIMER
+
 import json
 import tushare as ts
 
@@ -166,6 +169,19 @@ class JYTGateway(BaseGateway):
     def close(self):
         """"""
         self.ws_api.stop()
+
+    def process_timer_event(self, event: Event):
+        """"""
+        self.count += 1
+        if self.count < 3:
+            return
+
+        self.query_account()
+
+    def init_query(self):
+        """"""
+        self.count = 0
+        self.event_engine.register(EVENT_TIMER, self.process_timer_event)
 
 
 
