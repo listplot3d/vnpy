@@ -114,12 +114,13 @@ class JYTGateway(BaseGateway):
     #actual setting is here: ~/.vntrader/connect_jyt.json
 
     exchanges = [Exchange.SSE, Exchange.SZSE]
+    broker_logined=False
 
     def __init__(self, event_engine):
         """Constructor"""
         super(JYTGateway, self).__init__(event_engine, "JYT")
 
-        self.ws_api = JYTWebsocketApi(self)
+        self.wsApi = JYTWebsocketApi(self)
         self.ts = None #tushare的实例
 
     def connect(self, setting: dict):
@@ -139,12 +140,13 @@ class JYTGateway(BaseGateway):
         except KeyError:
             self.gateway.write_log("连接配置缺少字段，请检查")
 
-        self.ws_api.connect()
+        self.wsApi.connect()
+        self.init_query()
 
 
     def subscribe(self, req: SubscribeRequest):
         """"""
-        self.ws_api.subscribe(req)
+        self.wsApi.subscribe(req)
 
     def send_order(self, req: OrderRequest):
         """"""
@@ -154,13 +156,23 @@ class JYTGateway(BaseGateway):
         """"""
         self.wsApi.cancelOrder(req)
 
+    accntQueryTimes=0
     def query_account(self):
         """"""
-        pass
+        if self.broker_logined is False: #用户登录之后才能查账户
+            return
+
+        if self.accntQueryTimes is 0:
+            self.write_log("开始查询账户")
+
+        self.accntQueryTimes += 1
+        self.wsApi.tx_queryAccount_req()
+
+
 
     def query_position(self):
         """"""
-        pass
+        self.wsApi.tx_queryPosition_req()
 
     def query_history(self, req: HistoryRequest):
         """"""
@@ -168,19 +180,14 @@ class JYTGateway(BaseGateway):
 
     def close(self):
         """"""
-        self.ws_api.stop()
+        self.wsApi.stop()
 
     def process_timer_event(self, event: Event):
         """"""
-        self.count += 1
-        if self.count < 3:
-            return
-
         self.query_account()
 
     def init_query(self):
         """"""
-        self.count = 0
         self.event_engine.register(EVENT_TIMER, self.process_timer_event)
 
 
@@ -347,16 +354,20 @@ class JYTWebsocketApi(WebsocketClient):
 
     def on_Login_resp(self, jsonMsg):
         """"""
-        if jsonMsg.get('event'):#event是券商发给交易通,然后返回的
-            if jsonMsg.get('data').get('Result')==0:
-                self.gateway.write_log("登录券商服务器成功")
-                self.loginTime=int(time.time()*1000)
-            else:
-                self.gateway.write_log("登录券商服务器失败")
-                self.stop()
 
-        elif jsonMsg.get('ret'):#ret是交易通直接返回的券商配置
-            pass
+        # event是券商发给交易通,然后返回的
+        # ret是交易通直接返回的券商配置
+        if not(jsonMsg.get('event')):
+            return
+
+        if jsonMsg.get('data').get('Result')==0:
+            self.gateway.broker_logined=True
+            self.gateway.write_log("登录券商服务器成功")
+            self.loginTime=int(time.time()*1000)
+        else:
+            self.gateway.write_log("登录券商服务器失败")
+            self.stop()
+
 
     #----------------------------------------------------------------------
     def tx_queryAccount_req(self):
@@ -367,7 +378,10 @@ class JYTWebsocketApi(WebsocketClient):
 
     def on_queryAccount_resp(self, jsonMsg):
         """"""
-        accountid = str(d["account"])
+        if jsonMsg.get('event'):
+            return
+
+        accountid = str(self.gateway.BROKER_ACCNT)
         account = self.accounts.get(accountid, None)
         if not account:
             account = AccountData(accountid=self.gateway.BROKER_ACCNT,
