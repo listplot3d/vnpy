@@ -163,16 +163,7 @@ class JYTGateway(BaseGateway):
         self.jytWsApi.cancelOrder(req)
 
 
-    accntQueryTimes=0
     def query_account(self):
-        """"""
-        if self.broker_logined is False: #用户登录之后才能查账户
-            return
-
-        if self.accntQueryTimes is 0:
-            self.write_log("开始查询账户")
-
-        self.accntQueryTimes += 1
         self.jytWsApi.tx_queryAccount_req()
 
 
@@ -213,6 +204,7 @@ class JYTWebsocketApi(WebsocketClient):
 
         self.orderID = 0
         self.msgRespCallback = None
+        self.accntQueryTimes = 0
 
         # self.callbacks = {
         #     "trade": self.on_tick,
@@ -374,12 +366,23 @@ class JYTWebsocketApi(WebsocketClient):
             self.loginTime=int(time.time()*1000)
         else:
             self.gateway.write_log("登录券商服务器失败")
+            self.accntQueryTimes=0
+            self.loginTime=0
             self.stop()
+
 
 
     #----------------------------------------------------------------------
     def tx_queryAccount_req(self):
         """"""
+        if self.loginTime is 0: #用户登录之后才能查账户
+            return
+
+        if self.accntQueryTimes is 0:
+            self.write_log("开始查询账户")
+
+        self.accntQueryTimes += 1
+
         msg = '{"req":"Trade_QueryData","rid":"5","para":{"JsonType" : 0,"QueryType" : 1}}'
         self.msgRespCallback = self.on_queryAccount_resp
         self.sendText(msg)
