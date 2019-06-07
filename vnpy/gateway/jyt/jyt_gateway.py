@@ -123,7 +123,6 @@ class JYTGateway(BaseGateway):
         self.jytWsApi = JYTWebsocketApi(self)
 
     def connect(self, setting: dict):
-        """"""
         #load config from file
         try:
             self.TRADE_API_IP_PORT = str(setting['TRADE_API_IP_PORT'])
@@ -151,45 +150,40 @@ class JYTGateway(BaseGateway):
 
 
     def subscribe(self, req: SubscribeRequest):
-        """"""
         self.jytWsApi.subscribe(req)
 
     def send_order(self, req: OrderRequest):
-        """"""
         return self.jytWsApi.tx_commitOrder_req(req)
 
     def cancel_order(self, req: CancelRequest):
-        """"""
         self.jytWsApi.cancelOrder(req)
-
 
     def query_account(self):
         self.jytWsApi.tx_queryAccount_req()
 
-
-
     def query_position(self):
-        """"""
         self.jytWsApi.tx_queryPosition_req()
 
     def query_history(self, req: HistoryRequest):
-        """"""
         return self.rest_api.query_history(req)
 
     def close(self):
-        """"""
         self.jytWsApi.stop()
 
-    def process_timer_event(self, event: Event):
-        """"""
-        # self.query_account()
+    def query_fr_tushare(self):
         self.jytWsApi.on_depth()
+
+    def query_fr_jyt(self):
+        # self.query_account()
+        self.query_position()
+
+    def process_timer_event(self, event: Event):
+        self.query_fr_jyt()
+        self.query_fr_tushare()
 
 
     def init_query(self):
-        """"""
         self.event_engine.register(EVENT_TIMER, self.process_timer_event)
-
 
 
 class JYTWebsocketApi(WebsocketClient):
@@ -204,7 +198,8 @@ class JYTWebsocketApi(WebsocketClient):
 
         self.orderID = 0
         self.msgRespCallback = None
-        self.accntQueryTimes = 0
+
+        self.loginTime=0
 
         # self.callbacks = {
         #     "trade": self.on_tick,
@@ -366,7 +361,6 @@ class JYTWebsocketApi(WebsocketClient):
             self.loginTime=int(time.time()*1000)
         else:
             self.gateway.write_log("登录券商服务器失败")
-            self.accntQueryTimes=0
             self.loginTime=0
             self.stop()
 
@@ -377,11 +371,6 @@ class JYTWebsocketApi(WebsocketClient):
         """"""
         if self.loginTime is 0: #用户登录之后才能查账户
             return
-
-        if self.accntQueryTimes is 0:
-            self.write_log("开始查询账户")
-
-        self.accntQueryTimes += 1
 
         msg = '{"req":"Trade_QueryData","rid":"5","para":{"JsonType" : 0,"QueryType" : 1}}'
         self.msgRespCallback = self.on_queryAccount_resp
@@ -417,12 +406,16 @@ class JYTWebsocketApi(WebsocketClient):
     #----------------------------------------------------------------------
     def tx_queryPosition_req(self):
         """"""
+        if self.loginTime is 0: #用户登录之后才能查仓位
+            return
+
         msg = '{"req":"Trade_QueryData","rid":"6","para":{"JsonType" : 0,"QueryType" : 2}}'
         self.msgRespCallback = self.on_queryPosition_resp
         self.sendText(msg)
 
     def on_queryPosition_resp(self, jsonMsg):
         """"""
+
         data = jsonMsg.get('data')
 
         if data==None:
@@ -431,21 +424,31 @@ class JYTWebsocketApi(WebsocketClient):
         rows = len(data)
 
         for row in data:
-            position = PositionData()
-            position.gateway_name = self.gateway_name
-
-            position.symbol = row.get(u'证券代码')
-
-            position.exchange = self.find_exchange(position.symbol)
-
-            position.volume = row.get(u'证券数量')
-            position.frozen=row.get(u'冻结数量')
-            position.price = row.get(u'成本价')
-            position.pnl = row.get(u'浮动盈亏')
+            # position = PositionData()
+            # position.gateway_name = self.gateway_name
+            #
+            # position.symbol = row.get(u'证券代码')
+            #
+            # position.exchange = self.find_exchange(position.symbol)
+            #
+            # position.volume = row.get(u'证券数量')
+            # position.frozen=row.get(u'冻结数量')
+            # position.price = row.get(u'成本价')
+            # position.pnl = row.get(u'浮动盈亏')
+            s=row.get(u'证券代码')
+            position = PositionData(
+                symbol=s,
+                exchange=self.find_exchange(s),
+                direction=Direction.LONG,
+                volume=float(row.get(u'证券数量')),
+                frozen=float(row.get(u'冻结数量')),
+                gateway_name=self.gateway_name,
+                price=float(row.get(u'成本价')),
+                pnl=float(row.get(u'浮动盈亏'))
+            )
 
             self.gateway.on_position(position)
 
-        self.gateway.on_position(position)
 
 
     #----------------------------------------------------------------------
@@ -506,39 +509,44 @@ class JYTWebsocketApi(WebsocketClient):
     def on_depth(self):
         """"""
 
-        for symbol in self.ticks:
-            tick = self.ticks.get(symbol, None)
-            df = ts.get_realtime_quotes(symbol)
+        try:
+            for symbol in self.ticks:
+                tick = self.ticks.get(symbol, None)
+                df = ts.get_realtime_quotes(symbol)
 
-            tick.name=str(df['name'][0])
-            tick.last_price=float(df['price'][0])
-            tick.open_price=float(df['open'][0])
-            tick.high_price=float(df['high'][0])
-            tick.low_price=float(df['low'][0])
-            tick.pre_close=float(df['pre_close'][0])
-            tick.volume=float(df['volume'][0])
+                tick.name=str(df['name'][0])
+                tick.last_price=float(df['price'][0])
+                tick.open_price=float(df['open'][0])
+                tick.high_price=float(df['high'][0])
+                tick.low_price=float(df['low'][0])
+                tick.pre_close=float(df['pre_close'][0])
+                tick.volume=float(df['volume'][0])
 
 
-            for n in range(1, 6):
-                #set bid prices
-                bprice =float(df.__getattr__("b%s_p" % n)[0])
-                bvolume=float(df.__getattr__("b%s_v" % n)[0])
-                tick.__setattr__("bid_price_%s" % n, bprice)
-                tick.__setattr__("bid_volume_%s" % n, bvolume)
+                for n in range(1, 6):
+                    #set bid prices
+                    bprice =float(df.__getattr__("b%s_p" % n)[0])
+                    bvolume=float(df.__getattr__("b%s_v" % n)[0])
+                    tick.__setattr__("bid_price_%s" % n, bprice)
+                    tick.__setattr__("bid_volume_%s" % n, bvolume)
 
-                #set ask prices
-                price =float(df.__getattr__("a%s_p" % n)[0])
-                volume=float(df.__getattr__("a%s_v" % n)[0])
-                tick.__setattr__("ask_price_%s" % n, price)
-                tick.__setattr__("ask_volume_%s" % n, volume)
+                    #set ask prices
+                    price =float(df.__getattr__("a%s_p" % n)[0])
+                    volume=float(df.__getattr__("a%s_v" % n)[0])
+                    tick.__setattr__("ask_price_%s" % n, price)
+                    tick.__setattr__("ask_volume_%s" % n, volume)
 
-                #set timestamp
-                timestamp = df['date'][0] + ' ' + df['time'][0]
-                tick.datetime = datetime.strptime(
-                    timestamp, "%Y-%m-%d %H:%M:%S")
+                    #set timestamp
+                    timestamp = df['date'][0] + ' ' + df['time'][0]
+                    tick.datetime = datetime.strptime(
+                        timestamp, "%Y-%m-%d %H:%M:%S")
 
-            #update to UI
-            self.gateway.on_tick(copy(tick))
+                #update to UI
+                self.gateway.on_tick(copy(tick))
+        except:
+            self.gateway.write_log('Error: 价格更新异常')
+            print(df)
+
 
     def on_trade(self, d):
         """"""
