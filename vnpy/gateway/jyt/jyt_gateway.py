@@ -174,23 +174,26 @@ class JYTGateway(BaseGateway):
     def query_fr_tushare(self):
         self.jytWsApi.on_depth()
 
-    # def query_fr_jyt(self):
+    def query_fr_jyt(self):
     #     self.query_account()
     #     self.query_position()
+        if self.queryTimes % 10 ==0:
+            self.jytWsApi.tx_CheckStatus()
 
     def process_timer_event(self, event: Event):
-        # self.query_fr_jyt() #没交易的时候刷出来的也是固定的，不用刷
+        self.query_fr_jyt() #没交易的时候刷出来的也是固定的，不用刷
         self.query_fr_tushare()
-        # self.queryTimes = self.queryTimes +1
+        self.queryTimes = self.queryTimes +1
+        #TODO: add check_resp_timeout
 
 
     def init_query(self):
+        self.queryTimes=0
         self.event_engine.register(EVENT_TIMER, self.process_timer_event)
 
 
 class JYTWebsocketApi(WebsocketClient):
     """"""
-
 
     def __init__(self, gateway):
         """"""
@@ -200,7 +203,6 @@ class JYTWebsocketApi(WebsocketClient):
         self.gateway_name = gateway.gateway_name
 
         self.orderID = 0
-        self.msgRespCallback = None
 
         self.loginTime=0
 
@@ -209,98 +211,24 @@ class JYTWebsocketApi(WebsocketClient):
         self.orders = {}
         self.trades = set()
 
-        #维护一张类似下面的表，用来收到消息后找callback
-        #注意，ret_callback和event_callback一旦调用就会从表中移除rid，因此会导致另一个callback失效（如果有的话)
-        # rid     |    timeout_stamp     |     ret_callback    |    event_callback
-        #--------------------------------------------------------------------------
-        #  1      |  2019-06-09 09:15:00 |    this.donothing   |    jtyApi.connect
-        #  2      |  2019-06-09 09:16:00 |    this.donothing   |    jtyApi.Login
-
         self.last_rid = '0'
-        self.respHandlers = pd.DataFrame({'rid': [],
-                           'timeout_stamp': [],
-                           'ret_callback': [],
-                           'event_callback': []})
-
-    def new_rid(self):
-        self.last_rid=int(self.last_rid)+1
-        return str(self.last_rid)
 
 
 
-    def respHdlrs_add(
-            self, rid='0', timeoutSecs=5,ret_callback=None, event_callback=None):
-        """ add item into response message waiting list"""
-
-        timeout_stamp =  datetime.now()+timedelta(seconds=timeoutSecs)
-
-        d={'rid': rid,
-            'timeout_stamp': timeout_stamp,
-            'ret_callback': ret_callback,
-            'event_callback': event_callback}
-
-        self.respHandlers = \
-            self.respHandlers.append(d, ignore_index=True)
-
-        # self.gateway.write_log("remaining callbacks:" + str(len(self.respHandlers)))
-
-
-    def respHdlrs_remove(self, rid):
-        """ remove item into response message waiting list"""
-
-        # self.respHandlers=self.respHandlers.loc[self.respHandlers['rid'] != rid]
-
-        self.respHandlers.drop(
-            self.respHandlers[
-                self.respHandlers['rid'] == rid].index,inplace=True)
-        # self.gateway.write_log("remaining callbacks:" + str(len(self.respHandlers)))
-
+    #----------------------------------------------------------------------
     def unpackData(self, data):
         """重载"""
         s = data.replace('\n', '').replace('\r', '')
         return json.loads(s)
         # return json.loads(str,encoding='utf-8')
 
-
-    def connect(self):
-        """"""
-        self.gateway.write_log(u'开始连接交易通...')
-        #若无法建立连接,应该
-        # 2.用网页版的websocket试试
-        # 1.用jupyter notebook试试
-        # 3.确认阿里云的防火墙设置没问题
-
-        req="ws://"+self.gateway.TRADE_API_IP_PORT+"?rid=1&flag=1"
-        self.init(req)
-        self.start()
-
-    def subscribe(self, req: SubscribeRequest):
-        """
-        Subscribe to tick data update.
-        """
-        tick = TickData(
-            symbol=req.symbol,
-            exchange=req.exchange,
-            name=req.symbol,
-            datetime=datetime.now(),
-            gateway_name=self.gateway_name,
-        )
-        self.ticks[req.symbol] = tick
-
-    def on_connected(self):
-        """"""
-        self.gateway.write_log("Websocket API连接成功")
-        self.tx_TradeInit_req()
-
-    def on_disconnected(self):
-        """"""
-        self.gateway.write_log("Websocket API连接断开")
-
+    #----------------------------------------------------------------------
     def sendText(self, text):
         print("===SENT====")
         print(text)
         super(self.__class__, self)._send_text(text)
 
+    #----------------------------------------------------------------------
     def on_packet(self, jsonMsg: dict):
         print("---RCVD---")
         print(json.dumps(jsonMsg, ensure_ascii=False))
@@ -333,6 +261,7 @@ class JYTWebsocketApi(WebsocketClient):
 
 
 
+    #----------------------------------------------------------------------
     def on_error(self, exception_type: type, exception_value: Exception, tb):
         """"""
         msg = f"触发异常，状态码：{exception_type}，信息：{exception_value}"
@@ -341,6 +270,102 @@ class JYTWebsocketApi(WebsocketClient):
         sys.stderr.write(self.exception_detail(
             exception_type, exception_value, tb))
 
+        # ----------------------------------------------------------------------
+
+    def new_rid(self):
+        self.last_rid = int(self.last_rid) + 1
+        return str(self.last_rid)
+
+        # ----------------------------------------------------------------------
+
+    def init_respHandlers(self):
+
+        # 维护一张类似下面的表，用来收到消息后找callback
+        # 注意，ret_callback和event_callback一旦调用就会从表中移除rid，因此会导致另一个callback失效（如果有的话)
+        # rid     |    timeout_stamp     |     ret_callback    |    event_callback
+        # --------------------------------------------------------------------------
+        #  1      |  2019-06-09 09:15:00 |    this.donothing   |    jtyApi.connect
+        #  2      |  2019-06-09 09:16:00 |    this.donothing   |    jtyApi.Login
+
+        self.respHandlers = pd.DataFrame({'rid': [],
+                                          'timeout_stamp': [],
+                                          'ret_callback': [],
+                                          'event_callback': []})
+
+        # ----------------------------------------------------------------------
+
+    def respHdlrs_add(
+            self, rid='0', timeoutSecs=5, ret_callback=None, event_callback=None):
+        """ add item into response message waiting list"""
+
+        timeout_stamp = datetime.now() + timedelta(seconds=timeoutSecs)
+
+        d = {'rid': rid,
+             'timeout_stamp': timeout_stamp,
+             'ret_callback': ret_callback,
+             'event_callback': event_callback}
+
+        self.respHandlers = \
+            self.respHandlers.append(d, ignore_index=True)
+
+        # self.gateway.write_log("remaining callbacks:" + str(len(self.respHandlers)))
+
+        # ----------------------------------------------------------------------
+
+    def respHdlrs_remove(self, rid):
+        """ remove item into response message waiting list"""
+
+        # self.respHandlers=self.respHandlers.loc[self.respHandlers['rid'] != rid]
+
+        self.respHandlers.drop(
+            self.respHandlers[
+                self.respHandlers['rid'] == rid].index, inplace=True)
+        # self.gateway.write_log("remaining callbacks:" + str(len(self.respHandlers)))
+
+        # ----------------------------------------------------------------------
+
+    def connect(self):
+        """"""
+        self.init_respHandlers()
+        self.gateway.write_log(u'开始连接交易通...')
+        # 若无法建立连接,应该
+        # 2.用网页版的websocket试试
+        # 1.用jupyter notebook试试
+        # 3.确认阿里云的防火墙设置没问题
+        rid = self.new_rid()
+        req = "ws://" + self.gateway.TRADE_API_IP_PORT + "?rid=" + rid + "&flag=1"
+        self.init(req)
+        self.start()
+
+        # ----------------------------------------------------------------------
+
+    def on_connected(self):
+        """"""
+        self.gateway.write_log("Websocket API连接成功")
+        self.tx_TradeInit_req()
+
+        # ----------------------------------------------------------------------
+
+    def on_disconnected(self):
+        """"""
+        self.gateway.write_log("Websocket API连接断开")
+
+        # ----------------------------------------------------------------------
+
+    def subscribe(self, req: SubscribeRequest):
+        """
+        Subscribe to tick data update.
+        """
+        tick = TickData(
+            symbol=req.symbol,
+            exchange=req.exchange,
+            name=req.symbol,
+            datetime=datetime.now(),
+            gateway_name=self.gateway_name,
+        )
+        self.ticks[req.symbol] = tick
+
+    #----------------------------------------------------------------------
     def subscribe_topic(self):
         pass
         # """
@@ -360,6 +385,27 @@ class JYTWebsocketApi(WebsocketClient):
         # }
         # self.send_packet(req)
 
+    #----------------------------------------------------------------------
+    def tx_CheckStatus(self):
+        if self.loginTime is 0: #用户登录之后才能查状态
+            return
+
+        rid = self.new_rid()
+        msg = ('{"req":"Trade_CheckStatus","rid":'+rid+', '
+               '"para":{"Server": 2}}')
+
+        self.respHdlrs_add(rid=rid, ret_callback=self.on_CheckStatus_resp)
+        self.sendText(msg)
+
+    #----------------------------------------------------------------------
+    def on_CheckStatus_resp(self,jsonMsg):
+        if jsonMsg.get('data').get('Status') == 0:
+            self.gateway.write_log("交易连接正常")
+        else:
+            self.gateway.write_log("交易连接异常")
+            self._reconnect()
+
+    #----------------------------------------------------------------------
     def tx_TradeInit_req(self):
         rid = self.new_rid()
         msg = ('{"req":"Trade_Init","rid":'+rid+', '
@@ -372,11 +418,11 @@ class JYTWebsocketApi(WebsocketClient):
                 '"Core" : 1}}')
 
         self.respHdlrs_add(rid=rid, event_callback=self.on_TradeInit_resp)
-        # self.msgRespCallback = self.on_TradeInit_resp
         self.sendText(msg)
 
 
 
+    #----------------------------------------------------------------------
     def on_TradeInit_resp(self, jsonMsg):
         if jsonMsg.get('event'):#event是券商发给交易通,然后返回的
             if jsonMsg.get('data').get('Result')==0:
@@ -416,6 +462,7 @@ class JYTWebsocketApi(WebsocketClient):
         self.respHdlrs_add(rid=rid, event_callback=self.on_Login_resp)
         self.sendText(msg)
 
+    #----------------------------------------------------------------------
     def on_Login_resp(self, jsonMsg):
         """"""
 
@@ -448,6 +495,7 @@ class JYTWebsocketApi(WebsocketClient):
         self.respHdlrs_add(rid=rid, ret_callback=self.on_queryAccount_resp)
         self.sendText(msg)
 
+    #----------------------------------------------------------------------
     def on_queryAccount_resp(self, jsonMsg):
         """"""
         if jsonMsg.get('event'):
@@ -468,7 +516,6 @@ class JYTWebsocketApi(WebsocketClient):
     #----------------------------------------------------------------------
 
     def find_exchange(self, symbol):
-        #TODO 到底exchange用什么?
         if symbol[0] > '3':
             exchange = Exchange.SSE
         else:
@@ -492,23 +539,12 @@ class JYTWebsocketApi(WebsocketClient):
 
         data = jsonMsg.get('data')
 
-        if data==None:
+        if data == None:
             return
 
         rows = len(data)
 
         for row in data:
-            # position = PositionData()
-            # position.gateway_name = self.gateway_name
-            #
-            # position.symbol = row.get(u'证券代码')
-            #
-            # position.exchange = self.find_exchange(position.symbol)
-            #
-            # position.volume = row.get(u'证券数量')
-            # position.frozen=row.get(u'冻结数量')
-            # position.price = row.get(u'成本价')
-            # position.pnl = row.get(u'浮动盈亏')
             s=row.get(u'证券代码')
             position = PositionData(
                 symbol=s,
