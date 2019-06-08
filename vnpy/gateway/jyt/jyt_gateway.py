@@ -44,6 +44,7 @@ from vnpy.trader.event import EVENT_TIMER
 
 import json
 import tushare as ts
+import pandas as pd
 
 # REST_HOST = 'https://www.JYT.com'
 # WEBSOCKET_HOST = "wss://www.bitmex.com/realtime"
@@ -173,13 +174,14 @@ class JYTGateway(BaseGateway):
     def query_fr_tushare(self):
         self.jytWsApi.on_depth()
 
-    def query_fr_jyt(self):
-        # self.query_account()
-        self.query_position()
+    # def query_fr_jyt(self):
+    #     self.query_account()
+    #     self.query_position()
 
     def process_timer_event(self, event: Event):
-        self.query_fr_jyt()
+        # self.query_fr_jyt() #没交易的时候刷出来的也是固定的，不用刷
         self.query_fr_tushare()
+        # self.queryTimes = self.queryTimes +1
 
 
     def init_query(self):
@@ -188,6 +190,7 @@ class JYTGateway(BaseGateway):
 
 class JYTWebsocketApi(WebsocketClient):
     """"""
+
 
     def __init__(self, gateway):
         """"""
@@ -201,20 +204,56 @@ class JYTWebsocketApi(WebsocketClient):
 
         self.loginTime=0
 
-        # self.callbacks = {
-        #     "trade": self.on_tick,
-        #     "orderBook10": self.on_depth,
-        #     "execution": self.on_trade,
-        #     "order": self.on_order,
-        #     "position": self.on_position,
-        #     "margin": self.on_account,
-        #     "instrument": self.on_contract,
-        # }
-
         self.ticks = {}
         self.accounts = {}
         self.orders = {}
         self.trades = set()
+
+        #维护一张类似下面的表，用来收到消息后找callback
+        #注意，ret_callback和event_callback一旦调用就会从表中移除rid，因此会导致另一个callback失效（如果有的话)
+        # rid     |    timeout_stamp     |     ret_callback    |    event_callback
+        #--------------------------------------------------------------------------
+        #  1      |  2019-06-09 09:15:00 |    this.donothing   |    jtyApi.connect
+        #  2      |  2019-06-09 09:16:00 |    this.donothing   |    jtyApi.Login
+
+        self.last_rid = '0'
+        self.respHandlers = pd.DataFrame({'rid': [],
+                           'timeout_stamp': [],
+                           'ret_callback': [],
+                           'event_callback': []})
+
+    def new_rid(self):
+        self.last_rid=int(self.last_rid)+1
+        return str(self.last_rid)
+
+
+
+    def respHdlrs_add(
+            self, rid='0', timeoutSecs=5,ret_callback=None, event_callback=None):
+        """ add item into response message waiting list"""
+
+        timeout_stamp =  datetime.now()+timedelta(seconds=timeoutSecs)
+
+        d={'rid': rid,
+            'timeout_stamp': timeout_stamp,
+            'ret_callback': ret_callback,
+            'event_callback': event_callback}
+
+        self.respHandlers = \
+            self.respHandlers.append(d, ignore_index=True)
+
+        # self.gateway.write_log("remaining callbacks:" + str(len(self.respHandlers)))
+
+
+    def respHdlrs_remove(self, rid):
+        """ remove item into response message waiting list"""
+
+        # self.respHandlers=self.respHandlers.loc[self.respHandlers['rid'] != rid]
+
+        self.respHandlers.drop(
+            self.respHandlers[
+                self.respHandlers['rid'] == rid].index,inplace=True)
+        # self.gateway.write_log("remaining callbacks:" + str(len(self.respHandlers)))
 
     def unpackData(self, data):
         """重载"""
@@ -266,9 +305,33 @@ class JYTWebsocketApi(WebsocketClient):
         print("---RCVD---")
         print(json.dumps(jsonMsg, ensure_ascii=False))
 
-        """数据回调"""
-        if self.msgRespCallback is not None:
-            self.msgRespCallback(jsonMsg)
+        #提取rid
+        rid=str(jsonMsg.get('rid'))
+        hldrs= self.respHandlers[self.respHandlers['rid']==rid]
+
+        #检查异常
+        if len(hldrs) is 0:
+            self.gateway.write_log("Error: rcvd unexpected rid "+str(rid))
+            return
+
+        #提取并调用callback
+        hldr = hldrs.head(1)
+
+        if jsonMsg.get('event') is not None:
+            event_callback = hldr.iloc[0]['event_callback']
+            if event_callback is not None:
+                event_callback(jsonMsg)
+                self.respHdlrs_remove(rid)
+
+        elif jsonMsg.get('ret') is not None :
+            ret_callback = hldr.iloc[0]['ret_callback']
+            if ret_callback is not None :
+                ret_callback(jsonMsg)
+                self.respHdlrs_remove(rid) #放里面确保调用callback之后才会清掉
+        else:
+            self.gateway.write_log("Error: rcvd unexpected msg type")
+
+
 
     def on_error(self, exception_type: type, exception_value: Exception, tb):
         """"""
@@ -298,7 +361,8 @@ class JYTWebsocketApi(WebsocketClient):
         # self.send_packet(req)
 
     def tx_TradeInit_req(self):
-        msg = ('{"req":"Trade_Init","rid":"2", '
+        rid = self.new_rid()
+        msg = ('{"req":"Trade_Init","rid":'+rid+', '
                '"para":{"Broker" : ' + self.gateway.BROKER_ID + ','
                 '"Net" : 0,'
                 '"Server" : 2,'
@@ -307,8 +371,11 @@ class JYTWebsocketApi(WebsocketClient):
                 '"JsonType" : 0,'
                 '"Core" : 1}}')
 
-        self.msgRespCallback = self.on_TradeInit_resp
+        self.respHdlrs_add(rid=rid, event_callback=self.on_TradeInit_resp)
+        # self.msgRespCallback = self.on_TradeInit_resp
         self.sendText(msg)
+
+
 
     def on_TradeInit_resp(self, jsonMsg):
         if jsonMsg.get('event'):#event是券商发给交易通,然后返回的
@@ -327,7 +394,8 @@ class JYTWebsocketApi(WebsocketClient):
     def tx_Login_req(self):
         """"""
     # 登录券商服务器
-        msg=('{"req":"Trade_Login","rid":"3",'
+        rid = self.new_rid()
+        msg=('{"req":"Trade_Login","rid":'+rid+','
                 '"para":{"Server" : 2,'
                 '"AccountMode" : 9,'
                 '"Broker" : '+self.gateway.BROKER_ID+','
@@ -344,7 +412,8 @@ class JYTWebsocketApi(WebsocketClient):
                 '"Name" : "",'
                 '"CommPW" : "'+self.gateway.BROKER_COMM_PSWD+'"}}')
 
-        self.msgRespCallback = self.on_Login_resp
+        # self.msgRespCallback = self.on_Login_resp
+        self.respHdlrs_add(rid=rid, event_callback=self.on_Login_resp)
         self.sendText(msg)
 
     def on_Login_resp(self, jsonMsg):
@@ -359,6 +428,8 @@ class JYTWebsocketApi(WebsocketClient):
             self.gateway.broker_logined=True
             self.gateway.write_log("登录券商服务器成功")
             self.loginTime=int(time.time()*1000)
+            self.tx_queryAccount_req()
+            self.tx_queryPosition_req()
         else:
             self.gateway.write_log("登录券商服务器失败")
             self.loginTime=0
@@ -372,8 +443,9 @@ class JYTWebsocketApi(WebsocketClient):
         if self.loginTime is 0: #用户登录之后才能查账户
             return
 
-        msg = '{"req":"Trade_QueryData","rid":"5","para":{"JsonType" : 0,"QueryType" : 1}}'
-        self.msgRespCallback = self.on_queryAccount_resp
+        rid=self.new_rid()
+        msg = '{"req":"Trade_QueryData","rid":'+rid+',"para":{"JsonType" : 0,"QueryType" : 1}}'
+        self.respHdlrs_add(rid=rid, ret_callback=self.on_queryAccount_resp)
         self.sendText(msg)
 
     def on_queryAccount_resp(self, jsonMsg):
@@ -409,8 +481,10 @@ class JYTWebsocketApi(WebsocketClient):
         if self.loginTime is 0: #用户登录之后才能查仓位
             return
 
-        msg = '{"req":"Trade_QueryData","rid":"6","para":{"JsonType" : 0,"QueryType" : 2}}'
-        self.msgRespCallback = self.on_queryPosition_resp
+        rid = self.new_rid()
+        msg = '{"req":"Trade_QueryData","rid":'+rid+',"para":{"JsonType" : 0,"QueryType" : 2}}'
+        # self.msgRespCallback = self.on_queryPosition_resp
+        self.respHdlrs_add(rid=rid, ret_callback=self.on_queryPosition_resp)
         self.sendText(msg)
 
     def on_queryPosition_resp(self, jsonMsg):
