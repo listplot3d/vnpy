@@ -171,20 +171,31 @@ class JYTGateway(BaseGateway):
     def close(self):
         self.jytWsApi.stop()
 
-    def query_fr_tushare(self):
+    def update_fr_tushare(self):
         self.jytWsApi.on_depth()
 
-    def query_fr_jyt(self):
-    #     self.query_account()
-    #     self.query_position()
-        if self.queryTimes % 10 ==0:
-            self.jytWsApi.tx_CheckStatus()
+    def update_fr_jyt(self):
+        # 轮训交易通的连接状态
+        keepalive_secs = 5
+        if self.queryTimes % keepalive_secs == 0:
+                self.jytWsApi.tx_CheckStatus()
+
+        #如果有好几条消息都timeout,则认为通讯出问题了要重连接
+        timout_tolerance_cnt = 3
+        if self.jytWsApi.respHdlrs_count_timeout() >=timout_tolerance_cnt:
+            self.write_log("超时消息太多，开始重新连接")
+            self.jytWsApi.connect()
+            #todo: 如果发单的时候通讯断了如何处理？
+
+        #因此，断线后触发重连的最慢时间为
+        # (基础的timout时间+keepalive_secs*timout_tolerance_cnt)
+
 
     def process_timer_event(self, event: Event):
-        self.query_fr_jyt() #没交易的时候刷出来的也是固定的，不用刷
-        self.query_fr_tushare()
+        self.update_fr_jyt() #没交易的时候刷出来的也是固定的，不用刷
+        self.update_fr_tushare()
         self.queryTimes = self.queryTimes +1
-        #TODO: add check_resp_timeout
+        # self.check_jyt_resp_timeout()
 
 
     def init_query(self):
@@ -249,13 +260,13 @@ class JYTWebsocketApi(WebsocketClient):
             event_callback = hldr.iloc[0]['event_callback']
             if event_callback is not None:
                 event_callback(jsonMsg)
-                self.respHdlrs_remove(rid)
+                self.respHdlrs_remove_by_rid(rid)
 
         elif jsonMsg.get('ret') is not None :
             ret_callback = hldr.iloc[0]['ret_callback']
             if ret_callback is not None :
                 ret_callback(jsonMsg)
-                self.respHdlrs_remove(rid) #放里面确保调用callback之后才会清掉
+                self.respHdlrs_remove_by_rid(rid) #放里面确保调用callback之后才会清掉
         else:
             self.gateway.write_log("Error: rcvd unexpected msg type")
 
@@ -270,14 +281,13 @@ class JYTWebsocketApi(WebsocketClient):
         sys.stderr.write(self.exception_detail(
             exception_type, exception_value, tb))
 
-        # ----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
 
     def new_rid(self):
         self.last_rid = int(self.last_rid) + 1
         return str(self.last_rid)
 
-        # ----------------------------------------------------------------------
-
+    # ----------------------------------------------------------------------
     def init_respHandlers(self):
 
         # 维护一张类似下面的表，用来收到消息后找callback
@@ -292,7 +302,7 @@ class JYTWebsocketApi(WebsocketClient):
                                           'ret_callback': [],
                                           'event_callback': []})
 
-        # ----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
 
     def respHdlrs_add(
             self, rid='0', timeoutSecs=5, ret_callback=None, event_callback=None):
@@ -308,22 +318,32 @@ class JYTWebsocketApi(WebsocketClient):
         self.respHandlers = \
             self.respHandlers.append(d, ignore_index=True)
 
-        # self.gateway.write_log("remaining callbacks:" + str(len(self.respHandlers)))
+        # self.gateway.write_log("ADDed. callbacks:" + str(len(self.respHandlers)))
 
-        # ----------------------------------------------------------------------
-
-    def respHdlrs_remove(self, rid):
+    # ----------------------------------------------------------------------
+    def respHdlrs_remove_by_rid(self, rid):
         """ remove item into response message waiting list"""
 
-        # self.respHandlers=self.respHandlers.loc[self.respHandlers['rid'] != rid]
+        self.respHandlers=self.respHandlers.loc[self.respHandlers['rid'] != rid]
 
-        self.respHandlers.drop(
-            self.respHandlers[
-                self.respHandlers['rid'] == rid].index, inplace=True)
-        # self.gateway.write_log("remaining callbacks:" + str(len(self.respHandlers)))
+        # self.respHandlers.drop(
+        #     self.respHandlers[
+        #         self.respHandlers['rid'] == rid].index, inplace=True)
+        # # self.gateway.write_log("RMed.remaining callbacks:" + str(len(self.respHandlers)))
 
-        # ----------------------------------------------------------------------
-
+    def respHdlrs_remove_by_index(self, hldr_index):
+        #警告：如果用这个函数,会导致并发收到packet时，删pandas的row串线
+        #
+        # self.respHandlers=self.respHandlers.drop(hldr_index, inplace=True)
+        #
+        # self.gateway.write_log("RMed.remaining callbacks:" + str(len(self.respHandlers)))
+        # # print(self.respHandlers[['rid','timeout_stamp']])
+        pass
+    # ----------------------------------------------------------------------
+    def respHdlrs_count_timeout(self):
+        timeout_rows = self.respHandlers['timeout_stamp'] > datetime.now()
+        return len(timeout_rows)
+    # ----------------------------------------------------------------------
     def connect(self):
         """"""
         self.init_respHandlers()
@@ -337,21 +357,19 @@ class JYTWebsocketApi(WebsocketClient):
         self.init(req)
         self.start()
 
-        # ----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
 
     def on_connected(self):
         """"""
         self.gateway.write_log("Websocket API连接成功")
         self.tx_TradeInit_req()
 
-        # ----------------------------------------------------------------------
-
+    # ----------------------------------------------------------------------
     def on_disconnected(self):
         """"""
         self.gateway.write_log("Websocket API连接断开")
 
-        # ----------------------------------------------------------------------
-
+    # ----------------------------------------------------------------------
     def subscribe(self, req: SubscribeRequest):
         """
         Subscribe to tick data update.
