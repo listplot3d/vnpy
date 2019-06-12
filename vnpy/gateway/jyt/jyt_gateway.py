@@ -361,13 +361,13 @@ class JYTWebsocketApi(WebsocketClient):
 
     def on_connected(self):
         """"""
-        self.gateway.write_log("Websocket API连接成功")
+        self.gateway.write_log("Websocket连接成功")
         self.tx_TradeInit_req()
 
     # ----------------------------------------------------------------------
     def on_disconnected(self):
         """"""
-        self.gateway.write_log("Websocket API连接断开")
+        self.gateway.write_log("Websocket连接断开")
 
     # ----------------------------------------------------------------------
     def subscribe(self, req: SubscribeRequest):
@@ -418,7 +418,9 @@ class JYTWebsocketApi(WebsocketClient):
     #----------------------------------------------------------------------
     def on_CheckStatus_resp(self,jsonMsg):
         if jsonMsg.get('data').get('Status') == 0:
-            self.gateway.write_log("交易连接正常")
+            # self.gateway.write_log("交易连接正常")
+            print("交易连接正常")
+            pass
         else:
             self.gateway.write_log("交易连接异常")
             self._reconnect()
@@ -495,6 +497,8 @@ class JYTWebsocketApi(WebsocketClient):
             self.loginTime=int(time.time()*1000)
             self.tx_queryAccount_req()
             self.tx_queryPosition_req()
+
+
         else:
             self.gateway.write_log("登录券商服务器失败")
             self.loginTime=0
@@ -531,6 +535,7 @@ class JYTWebsocketApi(WebsocketClient):
         account.frozen = account.balance - account.available
 
         self.gateway.on_account(copy(account))
+        self.gateway.write_log("查询账户完成")
     #----------------------------------------------------------------------
 
     def find_exchange(self, symbol):
@@ -576,6 +581,7 @@ class JYTWebsocketApi(WebsocketClient):
             )
 
             self.gateway.on_position(position)
+        self.gateway.write_log("查询持仓完成")
 
 
 
