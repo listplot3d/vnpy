@@ -590,19 +590,20 @@ class JYTWebsocketApi(WebsocketClient):
         """"""
         self.orderID += 1
         orderID = str(self.loginTime + self.orderID)
-        vtOrderID = '.'.join([self.gatewayName, orderID])
+        vtOrderID = '.'.join([self.gateway_name, orderID])
 
-        if OrderRequest.direction.LONG == orderReq.direction :
+        if Direction.LONG == orderReq.direction :
             direction_type='1'
         else:
             direction_type='2'
 
-        if orderReq.symbol[0] <= '3': #深圳和上海市场的判断
-            marketType=1
+        if self.find_exchange(orderReq.symbol)=='SZSE':
+            marketType = 1
         else:
-            marketType=2
+            marketType = 2
 
-        msg = ('{"req":"Trade_CommitOrder","rid":"'+orderID+'",'
+        rid = self.new_rid()
+        msg = ('{"req":"Trade_CommitOrder","rid":"'+rid+'",'
                '"para":[{'
                '"Code" : '+orderReq.symbol+','  # 品种代码
                '"Count" : '+str(orderReq.volume)+','  # 数量
@@ -612,7 +613,8 @@ class JYTWebsocketApi(WebsocketClient):
                '"Price" : "'+str(orderReq.price) +'"' # 价格
                '}]}"')
 
-        self.msgRespCallback = self.on_commitOrder_resp
+        # self.msgRespCallback = self.on_commitOrder_resp
+        self.respHdlrs_add(rid=rid, event_callback = self.on_commitOrder_resp)
         self.sendText(msg)
 
         return vtOrderID
