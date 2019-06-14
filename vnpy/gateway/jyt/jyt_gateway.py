@@ -176,7 +176,7 @@ class JYTGateway(BaseGateway):
 
     def update_fr_jyt(self):
         # 轮训交易通的连接状态
-        keepalive_secs = 5
+        keepalive_secs = 30
         if self.queryTimes % keepalive_secs == 0:
                 self.jytWsApi.tx_CheckStatus()
 
@@ -332,7 +332,10 @@ class JYTWebsocketApi(WebsocketClient):
         # # self.gateway.write_log("RMed.remaining callbacks:" + str(len(self.respHandlers)))
 
     def respHdlrs_remove_by_index(self, hldr_index):
-        #警告：如果用这个函数,会导致并发收到packet时，删pandas的row串线
+        ''''
+        警告：如果用这个函数,会导致并发收到packet时，删pandas的row串线。即，找出来index后，删row之前，index其实已经变了
+        '''
+
         #
         # self.respHandlers=self.respHandlers.drop(hldr_index, inplace=True)
         #
@@ -619,6 +622,7 @@ class JYTWebsocketApi(WebsocketClient):
 
         return vtOrderID
 
+    #----------------------------------------------------------------------
     def on_commitOrder_resp(self, jsonMsg):
         """"""
         #TODO 发短信通知成功或错误
@@ -629,18 +633,31 @@ class JYTWebsocketApi(WebsocketClient):
         elif msgStr.find(u'event')>=0:
             self.gateway.write_log('委托成功')
 
+    #----------------------------------------------------------------------
+    def to_float(self, value):
+        if value == "":
+            return 0  # 9:00之后集合竞价之前volume会刷成0
+        else:
+            return float(value)
 
+    #----------------------------------------------------------------------
     def on_tick(self):
         """"""
-        for symbol in self.ticks:
-            tick = self.ticks.get(symbol, None)
-            df = ts.get_realtime_quotes(symbol)
+        try:
+            for symbol in self.ticks:
+                tick = self.ticks.get(symbol, None)
+                df = ts.get_realtime_quotes(symbol)
 
-            tick.last_price = df["price"][0]
-            timestamp=df['date'][0]+' '+df['time'][0]
-            tick.datetime = datetime.strptime(
-                timestamp, "%Y-%m-%d %H:%M:%S")
-            self.gateway.on_tick(copy(tick))
+                tick.last_price = self.to_float(df["price"][0])
+                timestamp=df['date'][0]+' '+df['time'][0]
+                tick.datetime = datetime.strptime(
+                    timestamp, "%Y-%m-%d %H:%M:%S")
+                self.gateway.on_tick(copy(tick))
+        except:
+            self.gateway.write_log('Error: on_tick 价格更新异常')
+            print(df)
+
+    #----------------------------------------------------------------------
 
     def on_depth(self):
         """"""
@@ -651,24 +668,25 @@ class JYTWebsocketApi(WebsocketClient):
                 df = ts.get_realtime_quotes(symbol)
 
                 tick.name=str(df['name'][0])
-                tick.last_price=float(df['price'][0])
-                tick.open_price=float(df['open'][0])
-                tick.high_price=float(df['high'][0])
-                tick.low_price=float(df['low'][0])
-                tick.pre_close=float(df['pre_close'][0])
-                tick.volume=float(df['volume'][0])
+                tick.last_price=self.to_float(df['price'][0])
+                tick.open_price=self.to_float(df['open'][0])
+                tick.high_price=self.to_float(df['high'][0])
+                tick.low_price=self.to_float(df['low'][0])
+                tick.pre_close=self.to_float(df['pre_close'][0])
+                tick.volume=self.to_float(df['volume'][0])
 
 
                 for n in range(1, 6):
                     #set bid prices
-                    bprice =float(df.__getattr__("b%s_p" % n)[0])
-                    bvolume=float(df.__getattr__("b%s_v" % n)[0])
+                    bprice =self.to_float(df.__getattr__("b%s_p" % n)[0])
+                    bvolume = self.to_float(df.__getattr__("b%s_v" % n)[0])
+
                     tick.__setattr__("bid_price_%s" % n, bprice)
                     tick.__setattr__("bid_volume_%s" % n, bvolume)
 
                     #set ask prices
-                    price =float(df.__getattr__("a%s_p" % n)[0])
-                    volume=float(df.__getattr__("a%s_v" % n)[0])
+                    price =self.to_float(df.__getattr__("a%s_p" % n)[0])
+                    volume=self.to_float(df.__getattr__("a%s_v" % n)[0])
                     tick.__setattr__("ask_price_%s" % n, price)
                     tick.__setattr__("ask_volume_%s" % n, volume)
 
@@ -680,7 +698,7 @@ class JYTWebsocketApi(WebsocketClient):
                 #update to UI
                 self.gateway.on_tick(copy(tick))
         except:
-            self.gateway.write_log('Error: 价格更新异常')
+            self.gateway.write_log('Error: on_depth 价格更新异常')
             print(df)
 
 
