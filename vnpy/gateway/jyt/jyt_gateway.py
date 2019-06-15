@@ -144,7 +144,7 @@ class JYTGateway(BaseGateway):
         self.jytWsApi.connect()
 
         #connect to tushare
-        ts.pro_api(self.TUSHARE_TOKEN)
+        self.tsPro=ts.pro_api(self.TUSHARE_TOKEN)
 
         #turn on periodical query
         self.init_query()
@@ -172,6 +172,12 @@ class JYTGateway(BaseGateway):
         self.jytWsApi.stop()
 
     def update_fr_tushare(self):
+
+    # 挪到subuscribe里面去了，意味着jyt和ts还是没分开
+    # TODO： jyt和TS应该分开
+    # if self.queryTimes is 0:
+        #     self.jytWsApi.on_contract()
+
         self.jytWsApi.on_depth()
 
     def update_fr_jyt(self):
@@ -199,6 +205,12 @@ class JYTGateway(BaseGateway):
 
 
     def init_query(self):
+        # self.query_contract()
+        # self.query_trade()
+        # self.query_order()
+        # self.query_position() #放到login后面串行调用了
+        # self.query_account() #放到login后面串行调用了
+
         self.queryTimes=0
         self.event_engine.register(EVENT_TIMER, self.process_timer_event)
 
@@ -385,6 +397,12 @@ class JYTWebsocketApi(WebsocketClient):
             gateway_name=self.gateway_name,
         )
         self.ticks[req.symbol] = tick
+        #tick数据的更新由on_tick()去做
+
+        #TODO: contract列表应当自动搜索出来。
+        # 而现在每次要手工subscribe之后才能执行策略,导致没法命令行执行
+        # 否则策略报错说找不到contract
+        self.add_contract(req.symbol)
 
     #----------------------------------------------------------------------
     def subscribe_topic(self):
@@ -522,7 +540,7 @@ class JYTWebsocketApi(WebsocketClient):
 
     #----------------------------------------------------------------------
     def on_queryAccount_resp(self, jsonMsg):
-        """"""
+        """查询账户资金"""
         if jsonMsg.get('event'):
             return
 
@@ -550,7 +568,7 @@ class JYTWebsocketApi(WebsocketClient):
 
     #----------------------------------------------------------------------
     def tx_queryPosition_req(self):
-        """"""
+        """查询持仓明细"""
         if self.loginTime is 0: #用户登录之后才能查仓位
             return
 
@@ -662,6 +680,7 @@ class JYTWebsocketApi(WebsocketClient):
     def on_depth(self):
         """"""
 
+        #TODO 改成只query一次，然后本地解析数据
         try:
             for symbol in self.ticks:
                 tick = self.ticks.get(symbol, None)
@@ -765,52 +784,18 @@ class JYTWebsocketApi(WebsocketClient):
     #
     #     self.gateway.on_order(copy(order))
 
-    def on_position(self, d):
+    def add_contract(self, symbol):
         """"""
-        position = PositionData(
-            symbol=d["symbol"],
-            exchange=Exchange.BITMEX,
-            direction=Direction.NET,
-            volume=d["currentQty"],
-            gateway_name=self.gateway_name,
-        )
-
-        self.gateway.on_position(position)
-
-    def on_account(self, d):
-        """"""
-        accountid = str(d["account"])
-        account = self.accounts.get(accountid, None)
-        if not account:
-            account = AccountData(accountid=accountid,
-                                  gateway_name=self.gateway_name)
-            self.accounts[accountid] = account
-
-        account.balance = d.get("marginBalance", account.balance)
-        account.available = d.get("availableMargin", account.available)
-        account.frozen = account.balance - account.available
-
-        self.gateway.on_account(copy(account))
-
-    def on_contract(self, d):
-        """"""
-        if "tickSize" not in d:
-            return
-
-        if not d["lotSize"]:
-            return
-
         contract = ContractData(
-            symbol=d["symbol"],
-            exchange=Exchange.BITMEX,
-            name=d["symbol"],
-            product=Product.FUTURES,
-            pricetick=d["tickSize"],
-            size=d["lotSize"],
-            stop_supported=True,
-            net_position=True,
-            history_data=True,
+            symbol=symbol,
+            exchange=self.find_exchange(symbol),
+            name=symbol,
+            product=Product.EQUITY,
+            pricetick=0.001,
+            size=100,
+            stop_supported=False,
+            net_position=False,
+            history_data=False,
             gateway_name=self.gateway_name,
         )
-
         self.gateway.on_contract(contract)
