@@ -45,6 +45,7 @@ from vnpy.trader.event import EVENT_TIMER
 import json
 import tushare as ts
 import pandas as pd
+import traceback
 
 # REST_HOST = 'https://www.JYT.com'
 # WEBSOCKET_HOST = "wss://www.bitmex.com/realtime"
@@ -236,8 +237,16 @@ class JYTWebsocketApi(WebsocketClient):
 
         self.last_rid = '0'
 
+    #----------------------------------------------------------------------
+    def comm_mute_period(self):
+        """早上8:00-9:05之间券商服务器会断开"""
+        h = datetime.now().hour
+        m = datetime.now().minute
 
-
+        if (h == 8) or (h == 9 and m < 5):
+            return True
+        else:
+            return False
     #----------------------------------------------------------------------
     def unpackData(self, data):
         """重载"""
@@ -428,6 +437,9 @@ class JYTWebsocketApi(WebsocketClient):
     def tx_CheckStatus(self):
         if self.loginTime is 0: #用户登录之后才能查状态
             return
+        if self.comm_mute_period():
+            print("处于通讯休息时段")
+            return
 
         rid = self.new_rid()
         msg = ('{"req":"Trade_CheckStatus","rid":'+rid+', '
@@ -444,7 +456,8 @@ class JYTWebsocketApi(WebsocketClient):
             pass
         else:
             self.gateway.write_log("交易连接异常")
-            self._reconnect()
+            if not(self.comm_mute_period()):
+                self._reconnect()
 
     #----------------------------------------------------------------------
     def tx_TradeInit_req(self):
@@ -523,7 +536,9 @@ class JYTWebsocketApi(WebsocketClient):
         else:
             self.gateway.write_log("登录券商服务器失败")
             self.loginTime=0
-            self.stop()
+            # self.stop()
+            if not(self.comm_mute_period()):
+                self._reconnect()
 
 
 
@@ -654,7 +669,7 @@ class JYTWebsocketApi(WebsocketClient):
     #----------------------------------------------------------------------
     def to_float(self, value):
         if value == "":
-            return 0  # 9:00之后集合竞价之前volume会刷成0
+            return 0.0  # 9:00之后集合竞价之前volume会刷成0
         else:
             return float(value)
 
@@ -718,8 +733,7 @@ class JYTWebsocketApi(WebsocketClient):
                 self.gateway.on_tick(copy(tick))
         except:
             self.gateway.write_log('Error: on_depth 价格更新异常')
-            print(df)
-
+            print("Unexpected error:", traceback.format_exc())
 
     def on_trade(self, d):
         """"""
